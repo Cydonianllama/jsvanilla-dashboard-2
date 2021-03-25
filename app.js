@@ -217,6 +217,54 @@ const ProductState = {
 const OrderState = {
     currentOrder : {
         productsSelected : []
+    },
+    updateProductInOrder(product){
+        let newArr = this.currentOrder.productsSelected.map(data => {
+            if (data.id === product.id){
+                return {...data,...product}
+            }else{
+                return data
+            }
+        })
+        this.currentOrder.productsSelected = newArr
+    },
+    pushProductInOrder(product){
+        console.log(product);
+        this.currentOrder.productsSelected.push(product)
+    },
+    removeProductInOrder(id){
+        let newArr = this.currentOrder.productsSelected.filter(data => data.id !== id)
+        this.currentOrder.productsSelected = newArr
+    },
+    resetListProductsInOrder(){
+        this.currentOrder.productsSelected = []
+        console.log(this.currentOrder.productsSelected);
+    },
+    processOrder(){
+        this.currentOrder.productsSelected.forEach( data => {
+            let report = productService.getProduct(data.id)
+
+            if (report){
+                if (report.quantity < data.quantity) {
+                    console.error('quantity required in product is superior');
+                } 
+                else {
+                    report.quantity = report.quantity - data.quantity
+
+                    productService.updateProduct(report)
+
+                    data.rowComponent.setData(report)
+                    data.rowComponent.updateComponent()
+
+                    this.resetListProductsInOrder()
+                }
+            }else{
+                console.error('an error ocurred : product not found for process order')
+            }
+        })
+    },
+    saveOrder(order){
+
     }
 }
 
@@ -236,7 +284,6 @@ const HintState = {
         this.hintComponent.updateComponent(this.messages)
     }
 }
-
 
 const HINT_CONTEXT = 'HINT_CONTEXT'
 const USER_CONTEXT = 'USER_CONTEXT'
@@ -362,15 +409,92 @@ const modalUtils = {
     }
 }
 
+class ProductInOrderItem {
+    
+    constructor(){
+        this.state={
+            quantity : 1
+        }
+    }
+
+    listeners(){
+        const component = this.currentComponent
+        const orderContext = stateContext(ORDER_CONTEXT)
+
+        const btnSum = component.querySelector('.btn-sum')
+        btnSum.addEventListener('click',()=>{
+            this.state.quantity++
+            inputQuantityModalProcess.value = this.state.quantity.toString() 
+            orderContext.updateProductInOrder({id : this.data.id , quantity : this.state.quantity})
+        })
+
+        const btnSub = component.querySelector('.btn-sub')
+        btnSub.addEventListener('click',()=>{
+            if (this.state.quantity === 1) return 
+            this.state.quantity--
+            inputQuantityModalProcess.value = this.state.quantity.toString()
+            orderContext.updateProductInOrder({ id: this.data.id, quantity: this.state.quantity })
+        })
+
+        const inputQuantityModalProcess = component.querySelector('.input_quantity_modal_process')
+        inputQuantityModalProcess.addEventListener('keyup',(e) => {
+            this.state.quantity = parseFloat(inputQuantityModalProcess.value)
+            orderContext.updateProductInOrder({ id: this.data.id, quantity: this.state.quantity })
+        })
+    }
+
+    getTemplate(){
+        let div = document.createElement('div')
+        const {name} = this.data
+        let template = `
+            <div class  = "product-in-order-item-header" >
+                <h3>${name}</h3>
+            </div>
+            <div class = "control quantity-2" >
+                <button class = "btn-sub" type = "button">less</button>
+                <input class = "input_quantity_modal_process" type = "number" placeholder = "quantity" value= "${this.state.quantity}" />
+                <button class = "btn-sum" type = "button" >more</button>
+            </div>
+        `
+        div.innerHTML = template
+        this.currentComponent = div
+        return div
+    }
+    
+    render(container){
+        let component = this.getTemplate()
+        container.append(component)
+        this.listeners()
+    }
+
+    setData(data){
+        this.data = data
+    }
+
+}
 class ModalProcessOrder {
 
     constructor(){
 
     }
 
+    listProductsInOrder(){
+        const containerProductsInOrder = document.getElementById('products-in-order')
+        containerProductsInOrder.innerHTML = ''
+        const orderContext = stateContext(ORDER_CONTEXT)
+        orderContext.currentOrder.productsSelected.forEach(data => {
+            const component = new ProductInOrderItem()
+            const report = productService.getProduct(data.id)
+            component.setData(report)
+            component.render(containerProductsInOrder)
+        })
+    }
+
     listeners(){
 
         const component = this.currentComponent
+        const orderContext = stateContext(ORDER_CONTEXT)
+        const hintContext = stateContext(HINT_CONTEXT)
 
         const btnCancel = component.querySelector('.btn-cancel-modal')
         btnCancel.addEventListener('click', () => {
@@ -379,6 +503,13 @@ class ModalProcessOrder {
 
         const btnProcess = component.querySelector('.btn-process-order')
         btnProcess.addEventListener('click',()=> {
+
+            orderContext.processOrder()
+
+            hintContext.pushMessage({ status: 'success', msg: `order processed succesfully` })
+            hintContext.updateHintMessages()
+            hintContext.resetMessages()
+
             modalUtils.closeModal(component)
         })
 
@@ -386,6 +517,7 @@ class ModalProcessOrder {
         btnSave.addEventListener('click',() => {
 
         })
+
     }
 
     getTemplate() {
@@ -393,15 +525,24 @@ class ModalProcessOrder {
         div.classList.add('modal')
         div.classList.add('modal-close')
         let template = `
-            <button class = "btn-cancel-modal">
-                cancel
-            </button>
-            <button class = "btn-save-modal">
-                save
-            </button>
-            <button class = "btn-process-order" >
-                process
-            <button>
+            <form>
+
+                <div id = "products-in-order" >
+                
+                </div>
+            
+                <button type = "button" class = "btn-cancel-modal">
+                    cancel
+                </button>
+                <button type = "button" class = "btn-save-modal">
+                    save
+                </button>
+                <button type = "button" class = "btn-process-order" >
+                    process
+                </button>
+            
+            </form>
+            
         `
         div.innerHTML = template
         this.currentComponent = div
@@ -827,6 +968,9 @@ class RowProduct {
         typeProduct.innerText = type
         warehouseProduct.innerText = warehouse
         meassurementProduct.innerText = `${quantity} ${meassurement.type}`
+
+        const selectOrder = component.querySelector('.product-row-select-order')
+        selectOrder.checked = false
     }
 
     listeners() {
@@ -834,15 +978,18 @@ class RowProduct {
         const component = this.currentComponent
 
         const hintContext = stateContext(HINT_CONTEXT)
+        const orderContext = stateContext(ORDER_CONTEXT)
         
         const selectOrder = component.querySelector('.product-row-select-order')
         selectOrder.addEventListener('click',()=> {
             console.log(selectOrder.checked);
             if (selectOrder.checked){
+                orderContext.pushProductInOrder({id : this.data.id , quantity : 1 , rowComponent : this})
                 hintContext.pushMessage({ status: 'success', msg: `product ${this.data.name} added in order` })
                 hintContext.updateHintMessages()
                 hintContext.resetMessages()
             }else{
+                orderContext.removeProductInOrder(this.data.id)
                 hintContext.pushMessage({ status: 'success', msg: `product ${this.data.name} removed in order` })
                 hintContext.updateHintMessages()
                 hintContext.resetMessages()
@@ -984,6 +1131,7 @@ class ActionsDashboard {
     listeners(){
         const btnGenerateOrder = document.getElementById('btn-dashboard-generate-order')
         btnGenerateOrder.addEventListener('click',()=>{
+            this.modalGenerateOrder.listProductsInOrder()
             modalUtils.openModal(this.modalGenerateOrder.currentComponent)
         })
         const btnAddProduct = document.getElementById('btn-dashboard-add-product')
